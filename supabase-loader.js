@@ -118,14 +118,49 @@
     }, 4000);
   }
 
+  async function silentRefresh(client) {
+    try {
+      const rows = await fetchDashboardRows(client);
+      const raw = normalizeRaw(rows);
+      validateMatchShape(raw);
+
+      if (typeof window.refreshDashboardData === "function") {
+        window.refreshDashboardData(raw);
+      } else {
+        // This should only happen if a DB event arrives during first boot.
+        window.RAW = raw;
+      }
+
+      const latest = rows
+        .map(r => r.updated_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+
+      setStatus(
+        `<b>Live data updated</b><br>${raw.history.length} matches` +
+        `${latest ? ` · ${new Date(latest).toLocaleTimeString()}` : ""}.`,
+        "ok"
+      );
+
+      setTimeout(() => {
+        if (statusEl) statusEl.style.opacity = "0.42";
+      }, 2200);
+
+    } catch (err) {
+      console.error("Silent Supabase refresh failed:", err);
+      setStatus(`<b>Live update failed</b><br>${err.message || err}`, "error");
+    }
+  }
+
   async function startRealtime(client) {
     if (!cfg.realtime) return;
 
     let timer = null;
-    const relevantKeys = new Set([
-      ...(cfg.dashboardKeys || []),
-      cfg.liveMatchKey
-    ].filter(Boolean));
+
+    // Only these rows affect the existing analytics dashboard.
+    // live_match is intentionally ignored until a live-score panel is added.
+    const relevantKeys = new Set(cfg.dashboardKeys || ["history", "players", "stats"]);
 
     client
       .channel("harrison-titans-app-data-live")
@@ -135,19 +170,19 @@
         payload => {
           const changedKey = payload?.new?.key || payload?.old?.key;
 
-          // Ignore unrelated app_data rows, such as photos.
-          if (changedKey && !relevantKeys.has(changedKey)) return;
+          // Ignore photos, live_match, and any unrelated app_data records.
+          if (!changedKey || !relevantKeys.has(changedKey)) return;
 
           clearTimeout(timer);
           timer = setTimeout(() => {
-            location.reload();
+            silentRefresh(client);
           }, cfg.realtimeRefreshDelayMs || 900);
         }
       )
       .subscribe(status => {
         if (status === "CHANNEL_ERROR") {
           console.warn(
-            "Supabase Realtime is unavailable. Manual page refresh will still load current data."
+            "Supabase Realtime is unavailable. Manual refresh still loads current data."
           );
         }
       });

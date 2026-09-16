@@ -1,6 +1,6 @@
 // Harrison Titans dashboard analytics/UI.
 // Data is loaded first by supabase-loader.js and exposed as window.RAW.
-const RAW = window.RAW;
+let RAW = window.RAW;
 if (!RAW || !Array.isArray(RAW.history)) {
   throw new Error("Dashboard data was not loaded correctly.");
 }
@@ -11,8 +11,13 @@ const fmt = n => (Number.isFinite(n) ? (Math.round(n*10)/10).toLocaleString() : 
 const pct = n => Number.isFinite(n) ? `${(n*100).toFixed(1)}%` : "—";
 const esc = s => String(s ?? "").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 
-const players = [...new Set([...(RAW.players||[]).map(norm), ...Object.keys(RAW.stats||{}).map(norm)])].sort();
-const matches = (RAW.history||[]).map((m,i)=>({...m,_id:i,_date:new Date(m.date)})).sort((a,b)=>a._date-b._date);
+let players = [];
+let matches = [];
+let deliveries = [];
+let playerMatches = {};
+let career = {};
+let recent5 = {};
+let scores = {};
 
 function inningsSides(m){
   return m.batFirst==="A"
@@ -46,7 +51,7 @@ function allDeliveries(matchSubset=matches){
   });
   return out;
 }
-const deliveries=allDeliveries();
+
 
 function matchPlayerStat(m,p){
   p=norm(p); let runs=0,balls=0,fours=0,sixes=0,wickets=0,runsGiven=0,ballsBowled=0,catches=0;
@@ -61,8 +66,6 @@ function matchPlayerStat(m,p){
   let result=side==="F"?"floater":(!ws?"tie":side===ws?"win":side?"loss":"");
   return {player:p,matchId:m._id,date:m._date,runs,balls,fours,sixes,wickets,runsGiven,ballsBowled,catches,side,result,appeared};
 }
-const playerMatches={};
-players.forEach(p=>playerMatches[p]=matches.map(m=>matchPlayerStat(m,p)).filter(x=>x.appeared));
 
 function aggregateFor(matchSubset){
   const ids=new Set(matchSubset.map(m=>m._id));
@@ -81,12 +84,12 @@ function aggregateFor(matchSubset){
   });
   return out;
 }
-const career=aggregateFor(matches);
+
 
 function recentAggregate(n=5){
   const last=matches.slice(-n); return aggregateFor(last);
 }
-const recent5=recentAggregate(5);
+
 
 function percentileScore(values,v,invert=false){
   const valid=values.filter(Number.isFinite).sort((a,b)=>a-b);
@@ -112,7 +115,37 @@ function playerScores(p){
   const impact=.35*batting+.35*bowling+.10*fielding+.10*win+.10*form;
   return {batting,bowling,fielding,win,form,impact};
 }
-const scores=Object.fromEntries(players.map(p=>[p,playerScores(p)]));
+
+
+
+function rebuildDerivedData(raw){
+  RAW = raw;
+  window.RAW = raw;
+
+  players = [...new Set([
+    ...(RAW.players||[]).map(norm),
+    ...Object.keys(RAW.stats||{}).map(norm)
+  ])].sort();
+
+  matches = (RAW.history||[])
+    .map((m,i)=>({...m,_id:i,_date:new Date(m.date)}))
+    .sort((a,b)=>a._date-b._date);
+
+  deliveries = allDeliveries(matches);
+
+  playerMatches = {};
+  players.forEach(p=>{
+    playerMatches[p] = matches
+      .map(m=>matchPlayerStat(m,p))
+      .filter(x=>x.appeared);
+  });
+
+  career = aggregateFor(matches);
+  recent5 = recentAggregate(5);
+  scores = Object.fromEntries(players.map(p=>[p,playerScores(p)]));
+}
+
+rebuildDerivedData(RAW);
 
 function matchup(batter,bowler,matchSubset=matches){
   batter=norm(batter);bowler=norm(bowler);
@@ -439,6 +472,51 @@ function generateTeams(){
       </div>
     </div>`;
 }
+
+
+function refreshSelectOptionsPreserve(id, fallback){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const previous=el.value;
+  populateSelect(id, previous || fallback);
+  if(previous && [...el.options].some(o=>o.value===previous)) el.value=previous;
+}
+
+function renderActiveView(){
+  const active=document.querySelector(".view.active")?.id;
+  if(active==="overview") renderOverview();
+  else if(active==="players") renderPlayer();
+  else if(active==="h2h") renderH2H();
+  else if(active==="bowling") renderBowling();
+  else if(active==="matches") renderMatches();
+  else if(active==="insights") renderInsights();
+}
+
+window.refreshDashboardData = function(newRaw){
+  const oldDate=document.getElementById("overviewDate")?.value || "all";
+  const oldTeamSelections=[...document.querySelectorAll("#playerChecks input:checked")].map(x=>x.value);
+
+  rebuildDerivedData(newRaw);
+
+  refreshSelectOptionsPreserve("playerSelect","Kshitij");
+  refreshSelectOptionsPreserve("batterSelect","Harish");
+  refreshSelectOptionsPreserve("bowlerSelect","Swapnil");
+  refreshSelectOptionsPreserve("bowlingPlayerSelect","Ruchir");
+
+  populateOverviewDates();
+  const dateEl=document.getElementById("overviewDate");
+  if(dateEl && [...dateEl.options].some(o=>o.value===oldDate)) dateEl.value=oldDate;
+
+  renderTeamBuilder();
+  if(oldTeamSelections.length){
+    document.querySelectorAll("#playerChecks input").forEach(x=>{
+      x.checked=oldTeamSelections.includes(x.value);
+    });
+  }
+
+  // Re-render the currently visible view only, so there is no page flash.
+  renderActiveView();
+};
 
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{
  document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("active",x===b));

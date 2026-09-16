@@ -151,3 +151,18 @@ Keep `index.html` as the permanent public filename.
 
 Whenever the dashboard code changes, overwrite the existing files in the GitHub repo
 and commit. Your public URL remains unchanged.
+
+
+## Silent realtime updates
+
+This version no longer uses `location.reload()` for database changes.
+
+When `history`, `players`, or `stats` changes:
+- the dashboard fetches current Supabase rows in the background;
+- recalculates analytics in memory;
+- re-renders only the currently visible dashboard view;
+- preserves the selected date/player/team-builder selections.
+
+Changes to `live_match` are ignored by the analytics page until a dedicated live-match
+panel is added. This prevents scorekeeping writes from causing unnecessary dashboard
+refreshes.
