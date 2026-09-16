@@ -201,7 +201,7 @@ tr:last-child td{border-bottom:0}
 </section>
 
 <section id="teams" class="view">
- <div class="hero"><div><div class="eyebrow">Balanced teams</div><h2>Team Builder</h2><div class="sub">Select today’s players. The optimizer minimizes the gap in overall impact, batting and bowling strength.</div></div></div>
+ <div class="hero"><div><div class="eyebrow">Balanced teams</div><h2>Team Builder</h2><div class="sub">Select today’s players. For even groups, the optimizer balances two teams. For odd groups, it also chooses the best floater based on past impact, batting, bowling and recent form.</div></div></div>
  <div class="card">
   <div class="section-title"><h3>Available players</h3><span>Select at least 6</span></div>
   <div class="checks" id="playerChecks"></div>
@@ -553,33 +553,105 @@ function teamMetrics(team){
 function combinations(arr,k){
   const out=[]; function rec(start,cur){if(cur.length===k){out.push([...cur]);return;} for(let i=start;i<=arr.length-(k-cur.length);i++){cur.push(arr[i]);rec(i+1,cur);cur.pop();}}rec(0,[]);return out;
 }
-function buildTeams(sel){
+function buildTeamsEven(sel){
   const nA=Math.floor(sel.length/2), allScore=sel.reduce((s,p)=>s+scores[p].impact,0);
   let combos=combinations(sel,nA);
   if(combos.length>25000) combos=combos.filter((_,i)=>i%Math.ceil(combos.length/25000)===0);
   let best=null;
   combos.forEach(a=>{
     const set=new Set(a),b=sel.filter(p=>!set.has(p)); const A=teamMetrics(a),B=teamMetrics(b);
-    const dI=Math.abs(A.impact-B.impact)/(allScore||1), dB=Math.abs(A.batting-B.batting)/(A.batting+B.batting||1), dW=Math.abs(A.bowling-B.bowling)/(A.bowling+B.bowling||1), dF=Math.abs(A.form-B.form)/(A.form+B.form||1);
+    const dI=Math.abs(A.impact-B.impact)/(allScore||1);
+    const dB=Math.abs(A.batting-B.batting)/(A.batting+B.batting||1);
+    const dW=Math.abs(A.bowling-B.bowling)/(A.bowling+B.bowling||1);
+    const dF=Math.abs(A.form-B.form)/(A.form+B.form||1);
     const loss=.4*dI+.25*dB+.25*dW+.10*dF;
     if(!best||loss<best.loss)best={a,b,A,B,loss};
   });
   return best;
 }
+
+function floaterFitScore(p){
+  const s=scores[p], c=career[p];
+  const versatility = 100 - Math.abs(s.batting-s.bowling)*0.45;
+  const reliability = Math.min(100, (c.matches/15)*100);
+  const formStability = 100 - Math.abs(s.form-s.impact)*0.5;
+  return 0.45*s.impact + 0.25*versatility + 0.15*reliability + 0.15*formStability;
+}
+
+function buildTeams(sel){
+  if(sel.length%2===0){
+    const best=buildTeamsEven(sel);
+    return {...best,floater:null,floaterFit:null};
+  }
+
+  let bestOverall=null;
+  sel.forEach(floater=>{
+    const remaining=sel.filter(p=>p!==floater);
+    const best=buildTeamsEven(remaining);
+    if(!best)return;
+    const fit=floaterFitScore(floater);
+    const adjustedLoss=best.loss + ((100-fit)/100)*0.06;
+    if(!bestOverall || adjustedLoss<bestOverall.adjustedLoss){
+      bestOverall={...best,floater,floaterFit:fit,adjustedLoss};
+    }
+  });
+  return bestOverall;
+}
+
 function renderTeamBuilder(){
   document.getElementById("playerChecks").innerHTML=players.filter(p=>career[p].matches).map((p,i)=>`<label class="check"><input type="checkbox" value="${esc(p)}" ${i<10?"checked":""}><span>${p}</span><span class="tag" style="margin-left:auto">${Math.round(scores[p].impact)}</span></label>`).join("");
 }
 function generateTeams(){
   const sel=[...document.querySelectorAll("#playerChecks input:checked")].map(x=>x.value);
-  if(sel.length<6){document.getElementById("teamResult").innerHTML=`<div class="card" style="margin-top:16px"><span class="bad">Select at least 6 players.</span></div>`;return;}
-  const x=buildTeams(sel); if(!x)return;
+  if(sel.length<6){
+    document.getElementById("teamResult").innerHTML=`<div class="card" style="margin-top:16px"><span class="bad">Select at least 6 players.</span></div>`;
+    return;
+  }
+
+  const x=buildTeams(sel);
+  if(!x)return;
+
   const balance=Math.max(0,100-x.loss*250);
   const avg=(v,n)=>v/Math.max(1,n);
-  document.getElementById("teamResult").innerHTML=`<div class="team-grid">
-   <div class="team"><h3>Team A</h3><ul>${x.a.sort((p,q)=>scores[q].impact-scores[p].impact).map(p=>`<li><b>${p}</b> <span class="note">impact ${Math.round(scores[p].impact)}</span></li>`).join("")}</ul></div>
-   <div class="team"><h3>Team B</h3><ul>${x.b.sort((p,q)=>scores[q].impact-scores[p].impact).map(p=>`<li><b>${p}</b> <span class="note">impact ${Math.round(scores[p].impact)}</span></li>`).join("")}</ul></div>
-  </div><div class="card" style="margin-top:16px"><div class="section-title"><h3>Balance score</h3><span>Higher is closer</span></div><div style="font-size:36px;font-weight:900">${balance.toFixed(1)}%</div>
-  <div class="balance"><div class="mini"><b>${fmt(avg(x.A.batting,x.a.length))} / ${fmt(avg(x.B.batting,x.b.length))}</b><span>Batting A / B</span></div><div class="mini"><b>${fmt(avg(x.A.bowling,x.a.length))} / ${fmt(avg(x.B.bowling,x.b.length))}</b><span>Bowling A / B</span></div><div class="mini"><b>${fmt(avg(x.A.form,x.a.length))} / ${fmt(avg(x.B.form,x.b.length))}</b><span>Form A / B</span></div><div class="mini"><b>${fmt(avg(x.A.impact,x.a.length))} / ${fmt(avg(x.B.impact,x.b.length))}</b><span>Impact A / B</span></div></div></div>`;
+
+  const floaterBlock = x.floater ? `
+    <div class="card" style="margin-top:16px;border-color:rgba(167,139,250,.55)">
+      <div class="section-title"><h3>🔄 Recommended floater</h3><span>Odd-number player pool</span></div>
+      <div class="player-header">
+        <div>
+          <div class="big-name">${x.floater}</div>
+          <div class="sub">Chosen because this player gives the best combination of historical impact, role versatility and team balance.</div>
+        </div>
+        <span class="tag">Floater fit ${Math.round(x.floaterFit)}/100</span>
+      </div>
+      <div class="metric-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="mini"><b>${Math.round(scores[x.floater].impact)}</b><span>Impact</span></div>
+        <div class="mini"><b>${Math.round(scores[x.floater].batting)}</b><span>Batting</span></div>
+        <div class="mini"><b>${Math.round(scores[x.floater].bowling)}</b><span>Bowling</span></div>
+        <div class="mini"><b>${Math.round(scores[x.floater].form)}</b><span>Recent form</span></div>
+      </div>
+      <div class="insight">
+        <strong>How to use the floater</strong>
+        <p>Let ${x.floater} bat/bowl for whichever side is statistically weaker in the relevant discipline, rather than assigning the floater permanently to one team.</p>
+      </div>
+    </div>` : "";
+
+  document.getElementById("teamResult").innerHTML=`
+    ${floaterBlock}
+    <div class="team-grid">
+      <div class="team"><h3>Team A</h3><ul>${x.a.sort((p,q)=>scores[q].impact-scores[p].impact).map(p=>`<li><b>${p}</b> <span class="note">impact ${Math.round(scores[p].impact)}</span></li>`).join("")}</ul></div>
+      <div class="team"><h3>Team B</h3><ul>${x.b.sort((p,q)=>scores[q].impact-scores[p].impact).map(p=>`<li><b>${p}</b> <span class="note">impact ${Math.round(scores[p].impact)}</span></li>`).join("")}</ul></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="section-title"><h3>Balance score</h3><span>${x.floater ? "Excludes floater from permanent team totals" : "Higher is closer"}</span></div>
+      <div style="font-size:36px;font-weight:900">${balance.toFixed(1)}%</div>
+      <div class="balance">
+        <div class="mini"><b>${fmt(avg(x.A.batting,x.a.length))} / ${fmt(avg(x.B.batting,x.b.length))}</b><span>Batting A / B</span></div>
+        <div class="mini"><b>${fmt(avg(x.A.bowling,x.a.length))} / ${fmt(avg(x.B.bowling,x.b.length))}</b><span>Bowling A / B</span></div>
+        <div class="mini"><b>${fmt(avg(x.A.form,x.a.length))} / ${fmt(avg(x.B.form,x.b.length))}</b><span>Form A / B</span></div>
+        <div class="mini"><b>${fmt(avg(x.A.impact,x.a.length))} / ${fmt(avg(x.B.impact,x.b.length))}</b><span>Impact A / B</span></div>
+      </div>
+    </div>`;
 }
 
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{
