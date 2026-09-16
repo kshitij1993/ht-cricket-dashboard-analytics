@@ -24,7 +24,7 @@ window.APP_CONFIG = {
   SUPABASE_URL: "https://jdmfeaamadqhppjetwil.supabase.co",
 
   // Paste the browser-safe Publishable / legacy anon key here.
-  SUPABASE_ANON_KEY: "PASTE_YOUR_PUBLISHABLE_OR_ANON_KEY_HERE",
+  SUPABASE_ANON_KEY: "sb_publishable_qGLHK6CwNbJuy43bdg5_ng_3ScyyPtQ",
 
   table: "app_data",
 
