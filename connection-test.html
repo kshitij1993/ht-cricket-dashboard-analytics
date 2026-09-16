@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Harrison Titans — Supabase Connection Test</title>
+<style>
+body{font:16px system-ui;background:#0b1020;color:#eef3ff;padding:30px}
+pre{white-space:pre-wrap;background:#121a2d;padding:16px;border-radius:12px;line-height:1.55}
+code{color:#7dd3fc}
+.ok{color:#86efac}.bad{color:#fca5a5}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<h1>Supabase connection test</h1>
+<p>Expected table: <code>public.app_data</code></p>
+<pre id="out">Testing…</pre>
+
+<script src="config.js"></script>
+<script>
+(async()=>{
+  const o=document.getElementById("out");
+  const c=window.APP_CONFIG;
+
+  try{
+    if(!c.SUPABASE_ANON_KEY || c.SUPABASE_ANON_KEY.includes("PASTE_")){
+      throw new Error("Add the Publishable/Anon key to js/config.js first.");
+    }
+
+    const db=window.supabase.createClient(
+      c.SUPABASE_URL,
+      c.SUPABASE_ANON_KEY,
+      {auth:{persistSession:false}}
+    );
+
+    const {data,error}=await db
+      .from("app_data")
+      .select("key,updated_at,value")
+      .in("key",["history","players","stats","live_match"]);
+
+    if(error) throw error;
+
+    const summary=(data||[]).map(r=>{
+      let shape;
+      if(Array.isArray(r.value)) shape=`array (${r.value.length})`;
+      else if(r.value && typeof r.value==="object") shape=`object (${Object.keys(r.value).length} keys)`;
+      else shape=typeof r.value;
+
+      return `${r.key.padEnd(12)} ${shape.padEnd(22)} updated ${r.updated_at || "unknown"}`;
+    });
+
+    const history=(data||[]).find(r=>r.key==="history")?.value;
+    const players=(data||[]).find(r=>r.key==="players")?.value;
+    const stats=(data||[]).find(r=>r.key==="stats")?.value;
+
+    o.innerHTML =
+      `<span class="ok">SUCCESS</span>\n\n` +
+      `Project: ${c.SUPABASE_URL}\n` +
+      `Table: public.app_data\n\n` +
+      summary.join("\n") +
+      `\n\nValidation:\n` +
+      `history: ${Array.isArray(history) ? "OK" : "MISSING / WRONG TYPE"}\n` +
+      `players: ${Array.isArray(players) ? "OK" : "MISSING / WRONG TYPE"}\n` +
+      `stats: ${stats && typeof stats==="object" && !Array.isArray(stats) ? "OK" : "MISSING / WRONG TYPE"}\n` +
+      `\nMatches: ${Array.isArray(history) ? history.length : 0}\n` +
+      `Players: ${Array.isArray(players) ? players.length : 0}`;
+
+  }catch(e){
+    o.innerHTML=`<span class="bad">ERROR</span>\n\n${e.message||e}`;
+  }
+})();
+</script>
+</body>
+</html>
