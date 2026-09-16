@@ -35,7 +35,7 @@ window.APP_CONFIG = {
   liveMatchKey: "live_match",
 
   // Automatically refresh the page when app_data changes.
-  realtime: true,
+  realtime: false,
 
   // Prevent multiple rapid writes from causing multiple reloads.
   realtimeRefreshDelayMs: 900
