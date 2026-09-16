@@ -1,5 +1,6 @@
 (() => {
   const cfg = window.APP_CONFIG || {};
+  console.info("HT dashboard loader v6.1 - silent realtime");
   const statusEl = document.getElementById("dataStatus");
 
   function setStatus(message, type = "") {
@@ -80,7 +81,7 @@
   function loadDashboardScript() {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
-      s.src = `dashboard.js?v=${Date.now()}`;
+      s.src = "dashboard.js?v=6.1";
       s.dataset.dashboard = "true";
       s.onload = resolve;
       s.onerror = () => reject(new Error("Could not load js/dashboard.js"));
